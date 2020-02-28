@@ -713,14 +713,44 @@ export class TilingFork {
             region.array[l] = length - ext.gap_inner_half;
 
             this.area_left = region.clone();
-            this.left.tile(tiler, ext, region, workspace);
+            let successful = true;
 
-            region.array[p] = region.array[p] + length + ext.gap_inner;
-            region.array[l] = this.area.array[l] - length - ext.gap_inner;
+            this.left.tile(tiler, ext, region, workspace, (actual) => {
+                if (this.area_left) {
+                    this.area_left.array[l] = length - actual.array[l] - ext.gap_inner_half;
+                    this.left.tile(tiler, ext, this.area_left, workspace, _ => { });
+                    successful = false;
+                }
+            });
 
-            this.right.tile(tiler, ext, region, workspace);
+            if (successful) {
+                region.array[p] = region.array[p] + length + ext.gap_inner;
+                region.array[l] = this.area.array[l] - length - ext.gap_inner;
+
+                this.right.tile(tiler, ext, region, workspace, (actual) => {
+                    Log.debug(`failed to resize`);
+                    if (this.area && this.area_left) {
+                        const left_length = length - actual.array[l];
+                        this.area_left.array[l] = left_length;
+
+                        region.array[p] = left_length + ext.gap_inner;
+                        region.array[l] = length - left_length;
+
+                        this.left.tile(tiler, ext, this.area_left, workspace, _ => { });
+                        this.right?.tile(tiler, ext, region, workspace, _ => { });
+                    }
+                });
+            } else {
+
+                this.right.tile(tiler, ext, region, workspace, (actual) => {
+
+                });
+            }
         } else {
-            this.left.tile(tiler, ext, this.area, workspace);
+            this.left.tile(tiler, ext, this.area, workspace, (actual) => {
+
+            });
+
             this.area_left = this.area;
         }
     }
@@ -772,7 +802,7 @@ export class TilingNode {
     /**
      * Tiles all windows associated with this node
      */
-    tile(tiler: AutoTiler, ext: Ext, area: Rectangle, workspace: number) {
+    tile(tiler: AutoTiler, ext: Ext, area: Rectangle, workspace: number, on_failure: (actual: Rectangle) => void) {
         if (NodeKind.FORK == this.kind) {
             Log.debug(`tiling Fork(${this.entity}) into [${area.array}]`);
             tiler.forks.get(this.entity)?.tile(tiler, ext, area, workspace);
@@ -781,7 +811,7 @@ export class TilingNode {
             const window = ext.windows.get(this.entity);
 
             if (window) {
-                window.move(area);
+                window.move(area, on_failure);
 
                 window.meta.change_workspace_by_index(workspace, false);
             }
